@@ -1,16 +1,13 @@
 import os
 import uuid
-import tempfile
-import streamlit as st
+import time
 import numpy as np
 import soundfile as sf
-from pydub import AudioSegment
 import google.generativeai as genai
+import gradio as gr
 
-# GEMINI API KEY
+# Configure Gemini API
 genai.configure(api_key="AIzaSyBas_7s1hD9cfAJuRHn-K4vrYZbqE-eXEE")
-
-# Ensure media directory exists
 os.makedirs("media", exist_ok=True)
 
 PROMPT_TEMPLATE = """
@@ -46,60 +43,61 @@ Overall Pronunciation Rating:
 [XX]%
 """
 
-def convert_to_wav(file) -> str:
-    """Converts mp3/m4a/wav to wav and returns the new file path"""
-    audio = AudioSegment.from_file(file)
+def upload_audio(audio):
+    sample_rate, data = audio
     guid = str(uuid.uuid4())
-    new_path = f"media/{guid}.wav"
-    audio.export(new_path, format="wav")
-    return new_path
+    filename = f"media/{guid}.wav"
+    
+    if data.ndim == 2:  # stereo
+        data = data.T
+    elif data.ndim != 1:
+        return "Unsupported audio format."
+    
+    sf.write(filename, data, sample_rate)
+    ref = genai.upload_file(path=filename)
+    return ref
 
 def generate_prompt(language, word_phrase):
     return PROMPT_TEMPLATE.format(language=language, word_phrase=word_phrase)
 
-def evaluate(file_path, prompt, model_choice):
-    file_ref = genai.upload_file(path=file_path)
+def evaluate_audio(audio, language, phrase, model_choice):
+    start = time.time()
+    audio_file_id = upload_audio(audio)
+    prompt = generate_prompt(language, phrase)
+    
     model = genai.GenerativeModel(model_choice)
-    full_prompt = [prompt, file_ref]
-    response = model.generate_content(full_prompt)
-    return response.text, response.usage_metadata
+    response = model.generate_content([prompt, audio_file_id])
+    
+    elapsed = round(time.time() - start, 2)
+    return (
+        response.text,
+        f"{elapsed} seconds",
+        response.usage_metadata.prompt_token_count,
+        response.usage_metadata.total_token_count,
+        model_choice
+    )
 
-# Streamlit UI
-st.set_page_config(page_title="Multilingual Speaking Evaluation", layout="centered")
-st.title("🗣️ Multilingual Speaking Evaluation")
-st.markdown("Analyze your pronunciation in any language using Google Gemini.")
+with gr.Blocks() as demo:
+    with gr.Tab("Multilingual Pronunciation Evaluation"):
+        audio_input = gr.Audio(sources=["microphone", "upload"], type="numpy", label="🎙️ Upload or record audio")
+        language = gr.Textbox(label="🌍 Language", placeholder="e.g., Arabic, Spanish, Mandarin")
+        phrase = gr.Textbox(label="🗣️ Phrase to compare with the audio")
+        model_choice = gr.Radio(
+            ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite-preview-02-05"],
+            label="🤖 Choose Gemini Model"
+        )
+        btn = gr.Button("🔍 Analyze")
+        result = gr.Textbox(label="📋 Feedback")
+        time_taken = gr.Textbox(label="⏱️ Time")
+        tokens_used = gr.Textbox(label="📊 Input Tokens")
+        total_tokens = gr.Textbox(label="📈 Total Tokens")
+        selected_model = gr.Textbox(label="🤖 Model Used")
 
-# Upload audio in any format
-uploaded_audio = st.file_uploader(
-    "📂 Upload your audio file (wav, mp3, m4a)", 
-    type=["wav", "mp3", "m4a"]
-)
+        btn.click(
+            fn=evaluate_audio,
+            inputs=[audio_input, language, phrase, model_choice],
+            outputs=[result, time_taken, tokens_used, total_tokens, selected_model]
+        )
 
-language = st.text_input("🌍 Language (e.g., Arabic, Spanish, Mandarin)")
-word_phrase = st.text_input("🗣️ Phrase to compare with the audio")
-model_choice = st.selectbox("🤖 Select Gemini Model", [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-2.0-flash-lite-preview-02-05"
-])
-
-# Main Analyze Button
-if st.button("🔍 Analyze"):
-    if not uploaded_audio:
-        st.warning("Please upload an audio file.")
-    elif not language or not word_phrase:
-        st.warning("Please fill in both the language and phrase fields.")
-    else:
-        with st.spinner("Converting and analyzing your audio..."):
-            try:
-                converted_path = convert_to_wav(uploaded_audio)
-                prompt = generate_prompt(language, word_phrase)
-                result, usage = evaluate(converted_path, prompt, model_choice)
-                st.success("✅ Evaluation Complete")
-                st.markdown("### 📋 Feedback")
-                st.text_area("AI Feedback", result, height=400)
-                st.markdown("### 📊 Token Usage")
-                st.write(f"**Input Tokens:** {usage.prompt_token_count}")
-                st.write(f"**Total Tokens:** {usage.total_token_count}")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+if __name__ == "__main__":
+    demo.launch()

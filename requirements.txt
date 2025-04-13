@@ -2,3 +2,4 @@ streamlit
 numpy
 soundfile
 google-generativeai
+streamlit-audiorecorder

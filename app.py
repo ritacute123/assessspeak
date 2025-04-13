@@ -84,17 +84,22 @@ model_choice = st.selectbox("🤖 Select Gemini Model", [
 ])
 
 # Main Analyze Button
-if st.button("🔍 Analyze") and uploaded_audio and language and word_phrase:
-    with st.spinner("Converting and analyzing your audio..."):
-        try:
-            converted_path = convert_to_wav(uploaded_audio)
-            prompt = generate_prompt(language, word_phrase)
-            result, usage = evaluate(converted_path, prompt, model_choice)
-            st.success("✅ Evaluation Complete")
-            st.markdown("### 📋 Feedback")
-            st.text_area("AI Feedback", result, height=400)
-            st.markdown("### 📊 Token Usage")
-            st.write(f"**Input Tokens:** {usage.prompt_token_count}")
-            st.write(f"**Total Tokens:** {usage.total_token_count}")
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+if st.button("🔍 Analyze"):
+    if not uploaded_audio:
+        st.warning("Please upload an audio file.")
+    elif not language or not word_phrase:
+        st.warning("Please fill in both the language and phrase fields.")
+    else:
+        with st.spinner("Converting and analyzing your audio..."):
+            try:
+                converted_path = convert_to_wav(uploaded_audio)
+                prompt = generate_prompt(language, word_phrase)
+                result, usage = evaluate(converted_path, prompt, model_choice)
+                st.success("✅ Evaluation Complete")
+                st.markdown("### 📋 Feedback")
+                st.text_area("AI Feedback", result, height=400)
+                st.markdown("### 📊 Token Usage")
+                st.write(f"**Input Tokens:** {usage.prompt_token_count}")
+                st.write(f"**Total Tokens:** {usage.total_token_count}")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")

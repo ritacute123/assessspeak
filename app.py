@@ -5,14 +5,15 @@ import soundfile as sf
 import streamlit as st
 import google.generativeai as genai
 import tempfile
-from streamlit.components.v1 import html
+from audiorecorder import audiorecorder
 
-# CONFIGURE GEMINI API
+# Gemini API
 genai.configure(api_key="AIzaSyBas_7s1hD9cfAJuRHn-K4vrYZbqE-eXEE")
 
-# AUDIO FOLDER
+# Audio folder
 os.makedirs("media", exist_ok=True)
 
+# Prompt template
 PROMPT_TEMPLATE = """
 You are a native speaker and expert linguist of the {language} language, specializing in pronunciation coaching.
 
@@ -56,60 +57,24 @@ def evaluate(filename, prompt, model_choice):
     response = model.generate_content(full_prompt)
     return response.text, response.usage_metadata
 
-def recorder_ui():
-    st.markdown("### 🎤 Or record your voice below")
-    html("""
-    <script>
-    let mediaRecorder;
-    let audioChunks = [];
-
-    async function startRecording() {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-
-        mediaRecorder.ondataavailable = event => {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
-            }
-        };
-
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(audioChunks);
-            const arrayBuffer = await blob.arrayBuffer();
-            const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-            const form = document.createElement("form");
-            form.method = "post";
-            form.action = "/_stcore/upload_file/";
-            form.enctype = "multipart/form-data";
-            const input = document.createElement("input");
-            input.name = "file";
-            input.type = "hidden";
-            input.value = base64Audio;
-            form.appendChild(input);
-            document.body.appendChild(form);
-            form.submit();
-        };
-
-        mediaRecorder.start();
-    }
-
-    function stopRecording() {
-        mediaRecorder.stop();
-    }
-    </script>
-    <button onclick="startRecording()">Click to Record</button>
-    <button onclick="stopRecording()">Stop</button>
-    """, height=100)
-
-# App UI
+# Streamlit UI
 st.set_page_config(page_title="Multilingual Speaking Evaluation", layout="centered")
 st.title("🗣️ Multilingual Speaking Evaluation")
 st.markdown("Analyze your pronunciation in any language using Google Gemini.")
 
 uploaded_audio = st.file_uploader("📂 Upload your audio file (.wav only)", type=["wav"])
 
-recorder_ui()
+# ✅ THIS WORKS ON STREAMLIT CLOUD:
+st.markdown("### 🎤 Or record your voice below")
+audio = audiorecorder("Click to record", "Click to stop")
+
+recorded_file = None
+if len(audio) > 0:
+    st.audio(audio.tobytes(), format="audio/wav")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(audio.tobytes())
+        recorded_file = f.name
+    st.success("✅ Audio recorded!")
 
 language = st.text_input("🌍 Language (e.g., Arabic, Spanish, Mandarin)")
 word_phrase = st.text_input("🗣️ Phrase to compare with the audio")
@@ -119,12 +84,15 @@ model_choice = st.selectbox("🤖 Select Gemini Model", [
     "gemini-2.0-flash-lite-preview-02-05"
 ])
 
+# Choose audio source
 audio_source = None
 if uploaded_audio:
     guid = str(uuid.uuid4())
     audio_source = f"media/{guid}.wav"
     audio_data, sample_rate = sf.read(uploaded_audio)
     sf.write(audio_source, audio_data, sample_rate)
+elif recorded_file:
+    audio_source = recorded_file
 
 if st.button("🔍 Analyze") and audio_source and language and word_phrase:
     with st.spinner("Analyzing pronunciation..."):
